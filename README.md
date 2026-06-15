@@ -51,14 +51,14 @@ claude
 | 模型名 `ANTHROPIC_DEFAULT_OPUS_MODEL` | 同上 | 同上 |
 | 令牌 `ANTHROPIC_AUTH_TOKEN` | **只在 `.env`**（不入库） | 重开终端或 `source .env` |
 
-## 五、在其他平台用（PAI-DSW / ModelScope / Gitpod）
+## 五、在其他平台用（PAI-DSW / ModelScope / 百度 AI Studio）
 
 仓库里的 `setup-claude.sh` 是通用安装脚本，适合任何 Linux 终端环境。
 
-### 阿里云 PAI-DSW / 魔搭 ModelScope（免费 GPU，浏览器 Notebook）
+### 阿里云 PAI-DSW / 魔搭 ModelScope / 百度 AI Studio（免费 GPU，浏览器 Notebook）
 
-这两个是**免费 GPU** 环境，适合真正跑 / 微调模型（ModelScope 的免费实例其实就是 PAI-DSW 提供的）。
-开好实例后，在它的终端里：
+这几个都是**免费 GPU** 环境，适合真正跑 / 微调模型（ModelScope 免费实例其实就是 PAI-DSW 提供的；
+百度 AI Studio 是飞桨 PaddlePaddle 的免费算力平台）。开好实例后，在它的终端里：
 
 ```bash
 git clone https://github.com/tpf308/ai-codespace.git && cd ai-codespace
@@ -68,17 +68,31 @@ source ~/.bashrc
 claude
 ```
 
-脚本会自动装 Node + Claude Code、写好默认设置、把第三方 API 变量持久化到 `~/.bashrc`。
+脚本会自动装 Node + Claude Code、写好默认设置、把第三方 API 变量（含 `IS_SANDBOX=1`）持久化到 `~/.bashrc`。
 
-> 注：Gitpod 已改版为付费的 **Ona** 平台（主推自带的 Codex/GPT agent），不再适合免费跑 Claude Code。
-> CPU 云 IDE 的需求用 **GitHub Codespaces** 即可，不需要 Gitpod。
+> GitHub clone 慢的话，换国内镜像：`git clone https://gitclone.com/github.com/tpf308/ai-codespace.git`
+> 提醒：Claude Code 本身不吃 GPU，只想用它就选**免费 CPU 实例**；GPU 留给真正跑模型时再开。
+
+### 在本地 VSCode 里连云端（VS Code 隧道）
+
+这些 Notebook 不给公网 SSH，用 `tunnel.sh` 起一条 VS Code 隧道，即可让本地 VSCode 连进来（免公网 SSH、穿防火墙）：
+
+```bash
+bash tunnel.sh          # 前台，按提示用 GitHub 账号授权
+# 或后台常驻：bash tunnel.sh -d  然后 cat ~/tunnel.log 看授权链接
+```
+
+本地 VSCode 装 **`Remote - Tunnels`** 扩展 → `F1` → `Remote Tunnels: Connect to Tunnel` → 用同一个 GitHub 账号登录、选中隧道。
+
+> Gitpod 已改版为付费的 **Ona** 平台（主推自带 agent），不再适合免费跑 Claude Code；CPU 云 IDE 用 **GitHub Codespaces** 即可。
 
 ## 目录结构
 
 ```
 .devcontainer/devcontainer.json    # Codespaces 容器配置（地址、模型、自动加载 .env、写默认设置）
 .devcontainer/claude-settings.json # Claude Code 默认设置（权限/主题/强度）
-setup-claude.sh                    # 通用安装脚本（PAI-DSW / ModelScope 等）
+setup-claude.sh                    # 通用安装脚本（PAI-DSW / ModelScope / AI Studio）
+tunnel.sh                          # 起 VS Code 隧道，本地 VSCode 连云端
 .env.example                       # 第三方令牌模板（复制为 .env 使用）
 requirements.txt                   # Python 依赖（按需）
 ```
