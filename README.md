@@ -113,6 +113,134 @@ source /mnt/workspace/start-claude.sh && claude
 
 > 先 `ls /mnt/workspace` 确认目录在；万一你实例的持久盘不叫这个名，把上面所有 `/mnt/workspace`（即 `ROOT`）换成那个"重开还在"的目录。
 
+### 魔搭 ModelScope —— 中转 API 需要科学上网时（anyrouter 等 + mihomo 代理）
+
+有些中转 API（如 `https://anyrouter.top`）从**境内机房直连会被墙**（`curl` 报 `sslv3 alert handshake failure`：TCP 能连、TLS 握手被拦）。
+这时在 ModelScope 上本地跑一个 **mihomo** 代理，挂上你自己的机场节点，让 Claude Code 走代理出去即可。
+
+> 前提：你有一份能用的机场**节点配置**（Clash/mihomo 的 `yaml`，含 `proxies`/`proxy-groups`/`rules`），或单条 `hysteria2://`、`vless://` 分享链接。
+
+**① 准备节点配置 → 持久盘**
+
+把你的 Clash 配置文件上传到 `/mnt/workspace`（网页资源管理器拖进去），重命名为 `config.yaml`，然后：
+
+```bash
+mkdir -p /mnt/workspace/mihomo-data
+mv /mnt/workspace/config.yaml /mnt/workspace/mihomo-data/config.yaml
+# 分流默认走"自动选择"（按延迟自动挑能用的节点）
+sed -i 's/MATCH,节点选择/MATCH,自动选择/' /mnt/workspace/mihomo-data/config.yaml
+# 删掉需要 GeoIP 库的规则（机房连 GitHub 慢，避免卡在下载 MMDB 起不来）
+sed -i '/GEOIP/d' /mnt/workspace/mihomo-data/config.yaml
+```
+
+**② 下载 mihomo 内核 → 持久盘**
+
+```bash
+cd /mnt/workspace
+VER=v1.18.10
+curl -LO "https://github.com/MetaCubeX/mihomo/releases/download/${VER}/mihomo-linux-amd64-compatible-${VER}.gz"
+gunzip -f "mihomo-linux-amd64-compatible-${VER}.gz"
+mv -f "mihomo-linux-amd64-compatible-${VER}" mihomo
+chmod +x mihomo && ./mihomo -v
+```
+
+**③ 代理版启动脚本 `start-claude.sh`**（令牌换成你 anyrouter 的）：
+
+```bash
+cat > /mnt/workspace/start-claude.sh <<'EOF'
+#!/usr/bin/env bash
+# 代理版 —— anyrouter 中转 + 本地 mihomo 代理
+export PATH="/mnt/workspace/node/bin:/mnt/workspace/npm-global/bin:$PATH"
+
+# 本地代理 mihomo：没在跑就自动拉起，并等端口就绪
+if ! pgrep -f "mihomo -d" >/dev/null 2>&1; then
+  echo "正在启动 mihomo 代理..."
+  nohup /mnt/workspace/mihomo -d /mnt/workspace/mihomo-data >/mnt/workspace/mihomo-data/mihomo.log 2>&1 &
+  for i in $(seq 1 10); do
+    ss -tlnp 2>/dev/null | grep -q 127.0.0.1:7890 && break
+    sleep 1
+  done
+fi
+
+# 代理变量（让 Claude Code 走 mihomo）
+export HTTPS_PROXY="http://127.0.0.1:7890"
+export HTTP_PROXY="http://127.0.0.1:7890"
+export NO_PROXY="localhost,127.0.0.1"
+
+# anyrouter 中转 API
+export ANTHROPIC_BASE_URL="https://anyrouter.top"
+export ANTHROPIC_AUTH_TOKEN="你的anyrouter令牌"
+export IS_SANDBOX=1
+
+mkdir -p $HOME/.claude && cp /mnt/workspace/claude-config/settings.json $HOME/.claude/settings.json
+
+# 启动前自检：确认代理能连到 anyrouter
+code=$(curl -x http://127.0.0.1:7890 -sS -o /dev/null -w "%{http_code}" --max-time 15 https://anyrouter.top/ 2>/dev/null)
+if [ -n "$code" ] && [ "$code" != "000" ]; then
+  echo "✅ 代理正常（anyrouter 返回 HTTP $code），可以启动 claude"
+else
+  echo "⚠️  代理没通，查看日志：tail /mnt/workspace/mihomo-data/mihomo.log"
+fi
+EOF
+```
+
+**④ 直连版启动脚本 `start-direct.sh`**（不走代理，用境内可直连的中转）：
+
+```bash
+cat > /mnt/workspace/start-direct.sh <<'EOF'
+#!/usr/bin/env bash
+# 直连版（不走代理）—— 用境内可直连的中转
+export PATH="/mnt/workspace/node/bin:/mnt/workspace/npm-global/bin:$PATH"
+
+# 清掉残留代理变量 + 停掉 mihomo，确保干净直连
+unset HTTPS_PROXY HTTP_PROXY ALL_PROXY NO_PROXY https_proxy http_proxy all_proxy no_proxy
+pkill -f mihomo 2>/dev/null
+
+# 中转 API（境内可直连）
+export ANTHROPIC_BASE_URL="https://cc.freemodel.dev"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-8"
+export ANTHROPIC_AUTH_TOKEN="你的cc.freemodel令牌"
+export IS_SANDBOX=1
+
+mkdir -p $HOME/.claude && cp /mnt/workspace/claude-config/settings.json $HOME/.claude/settings.json
+EOF
+```
+
+> 生成后记得把两个脚本里的 `你的xxx令牌` 换成真实令牌（在编辑器里改，别提交、别截图外发）。
+
+**⑤ 日常使用：选一个脚本 source**
+
+| 场景 | 命令 |
+|------|------|
+| 走代理（anyrouter） | `source /mnt/workspace/start-claude.sh && claude` |
+| 直连（cc.freemodel.dev） | `source /mnt/workspace/start-direct.sh && claude` |
+
+两者互不打架：直连版会清代理 + 停 mihomo；代理版有 `pgrep` 自检会自动把 mihomo 拉起。
+
+**⑥ 锁定固定节点（可选，解决偶发断流）**
+
+`自动选择` 是 url-test，按延迟自动切换，偶尔切到差节点会断流；想稳定就锁定一条：
+
+1. 在 `config.yaml` 顶部加一行开启控制接口（若没有），重启 mihomo 后查当前选中的节点名：
+   ```yaml
+   external-controller: 127.0.0.1:9090
+   ```
+   ```bash
+   curl -s http://127.0.0.1:9090/proxies/自动选择 | grep -o '"now":"[^"]*"'
+   ```
+2. 打开 `/mnt/workspace/mihomo-data/config.yaml`，把规则段最后一行 `  - "MATCH,自动选择"`
+   改成那条节点名（从 `proxies` 段一字不差复制），例如：
+   ```yaml
+     - "MATCH,🇺🇸美国01 | 合适下载使用-0.01倍"
+   ```
+3. 重启 mihomo 生效（想换回自动：改回 `MATCH,自动选择` 再重启）：
+   ```bash
+   pkill -f mihomo; sleep 1
+   nohup /mnt/workspace/mihomo -d /mnt/workspace/mihomo-data >/mnt/workspace/mihomo-data/mihomo.log 2>&1 &
+   ```
+
+> 提示：hysteria2(hy2) 走 UDP，免费机房可能不放行；连不通就在节点里换 `vless`（TCP/443）。机场节点密码、订阅 token 等同账号密码，**别写进入库文件、别截图外发**。
+
 ### 腾讯 Cloud Studio（CPU，家目录持久）
 
 家目录本身不丢，用脚本默认（家目录）模式即可，新终端会自动加载：
