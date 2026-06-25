@@ -51,9 +51,9 @@ fi
 export PATH="$NODE_DIR/bin:$NPM_PREFIX/bin:$PATH"
 echo "Node 版本：$(node -v)"
 
-# 2) 全局安装 Claude Code 到 $NPM_PREFIX
+# 2) 全局安装 Claude Code 到 $NPM_PREFIX（锁死版本，配合下方 DISABLE_AUTOUPDATER 防止自动升级）
 npm config set prefix "$NPM_PREFIX"
-npm install -g @anthropic-ai/claude-code
+npm install -g @anthropic-ai/claude-code@2.1.179
 
 # 3) 写入 Claude Code 默认设置（放持久盘，启动脚本会拷到 ~/.claude）
 mkdir -p "$CFG_DIR"
@@ -75,6 +75,8 @@ export ANTHROPIC_DEFAULT_OPUS_MODEL="$OPUS_MODEL"
 export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_AUTH_TOKEN"
 # root 容器（如 DSW/ModelScope）下允许 bypass 权限模式
 export IS_SANDBOX=1
+# 关闭自动更新，锁死在安装的版本（v2.1.179）
+export DISABLE_AUTOUPDATER=1
 mkdir -p "\$HOME/.claude" && cp "$CFG_DIR/settings.json" "\$HOME/.claude/settings.json"
 EOF
 
